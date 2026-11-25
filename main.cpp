@@ -3,18 +3,19 @@
 //  Built on Chris Johnson's header-only ComputerCard.h (TomWhitwell/Workshop_Computer)
 //
 //  ALWAYS ON : Euclidean generator  (Pulse In 1 = clock, Pulse In 2 = reset)
-//                Knob X  (+CV1) = length 1..16
+//                Knob X         = length 1..16
 //                Knob Y  (+CV2) = hits   1..length
 //                Pulse Out 1    = Euclidean triggers (hits)
 //                Pulse Out 2    = complement (fires on the rests)
 //              No cable in Pulse In 1 -> internal clock, 120 BPM.
+//  CV In 1 is added to the MAIN knob (pan / crossfade / rotation).
 //
 //  SWITCH UP    : Panner.  Audio In 1 only (or only In 2) -> mono equal-power pan.
 //                          Both cables -> stereo balance (In1->Out1, In2->Out2).
 //                 Main knob: full CCW = Out 1 only, full CW = Out 2 only.
 //  SWITCH MIDDLE: Equal-power crossfade In1 <-> In2 (Main knob), sent to Out 1 & 2.
 //  SWITCH DOWN  : Main knob ROTATES the Euclidean pattern (0..length-1 steps).
-//                 Audio passes straight through (In1->Out1, In2->Out2, mono-normalled).
+//                 Audio outputs are silent in this position.
 //                 The rotation is remembered when you leave this position.
 //
 //  DSP rules: ProcessSample() uses ONLY 32-bit integer maths (no float/double,
@@ -94,7 +95,11 @@ class StereoTool : public ComputerCard
         in2Conn  = Connected(Input::Audio2);
         sw       = SwitchVal();
 
-        int32_t kx = KnobVal(Knob::X), ky = KnobVal(Knob::Y), km = KnobVal(Knob::Main);
+        int32_t cv1 = Connected(Input::CV1) ? CVIn1() : 0;
+        int32_t cv2 = Connected(Input::CV2) ? CVIn2() : 0;
+
+        int32_t kx = KnobVal(Knob::X), ky = KnobVal(Knob::Y);
+        int32_t km = Clamp12(KnobVal(Knob::Main) + cv1);   // CV 1 adds to Main knob
 
         smX += ((kx << 4) - smX) >> 4;
         smY += ((ky << 4) - smY) >> 4;
@@ -102,9 +107,7 @@ class StereoTool : public ComputerCard
         if (sw == Switch::Down) smRot += ((km << 4) - smRot) >> 4;   // rotate mode
         else                    panTarget = km;                      // pan / crossfade
 
-        int32_t cv1 = Connected(Input::CV1) ? CVIn1() : 0;
-        int32_t cv2 = Connected(Input::CV2) ? CVIn2() : 0;
-        int32_t x = Clamp12((smX >> 4) + cv1);
+        int32_t x = Clamp12(smX >> 4);
         int32_t y = Clamp12((smY >> 4) + cv2);
 
         int32_t nLen  = 1 + ((x * 16) >> 12);          // 1..16
@@ -193,9 +196,8 @@ public:
             o1 = o2 = (a1 * QSin(4095 - p) + a2 * QSin(p)) >> 15;   // equal-power crossfade
             break;
 
-        default: // Down: pass-through
-            if (both) { o1 = a1; o2 = a2; }
-            else      { o1 = o2 = mono; }
+        default: // Down: audio outputs silent
+            o1 = o2 = 0;
             break;
         }
         o1 = Clip(o1); o2 = Clip(o2);
