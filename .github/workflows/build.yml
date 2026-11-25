@@ -1,0 +1,46 @@
+name: Build UF2
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake gcc-arm-none-eabi libnewlib-arm-none-eabi \
+            libstdc++-arm-none-eabi-newlib build-essential python3
+
+      - name: Clone Pico SDK
+        run: |
+          git clone --depth 1 --recurse-submodules --shallow-submodules \
+            https://github.com/raspberrypi/pico-sdk.git "$HOME/pico-sdk"
+          echo "PICO_SDK_PATH=$HOME/pico-sdk" >> "$GITHUB_ENV"
+
+      - name: Fetch ComputerCard.h
+        run: |
+          git clone --depth 1 https://github.com/TomWhitwell/Workshop_Computer.git "$HOME/Workshop_Computer"
+          mkdir -p lib
+          # pick a copy of the header that has the jack-detection API we use
+          HDR=$(grep -rl "EnableNormalisationProbe" --include=ComputerCard.h "$HOME/Workshop_Computer" | head -n1)
+          test -n "$HDR" || { echo "No suitable ComputerCard.h found"; exit 1; }
+          echo "Using $HDR"
+          cp "$HDR" lib/ComputerCard.h
+
+      - name: Configure & build
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j"$(nproc)"
+
+      - name: Upload UF2
+        uses: actions/upload-artifact@v4
+        with:
+          name: stereo_tool-uf2
+          path: build/stereo_tool.uf2
+          if-no-files-found: error
